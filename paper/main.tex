@@ -1,0 +1,909 @@
+\documentclass[journal]{IEEEtran}
+
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\newtheorem{lemma}{Lemma}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.symbols,calc,fit,backgrounds}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{../results/figures/}{figures/}}
+\input{macros.tex}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Prob}{\mathbb{P}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\stealth}{\ensuremath{d{=}0}}
+\newcommand{\response}{\ensuremath{d{=}1}}
+
+\begin{document}
+
+\title{CRADLE: Transient Security--Dependability Analysis of Crypto-Ransomware
+Kill-Chains in MEC Micro-Datacenters under Footprint-Aware Detection and
+Backup--Restore Defense}
+
+\author{Tuan~Anh~Nguyen%
+\thanks{T.~A.~Nguyen is with the Faculty of Information Technology, Hanoi
+University of Industry and Technology (HUIT), Hanoi, Vietnam
+(e-mail: anhngt@huit.edu.vn).}%
+\thanks{Reproducibility: all models, solvers, the simulator, and the scripts
+that regenerate every figure, table and in-text number are openly available at
+\url{https://github.com/anhnt2407/504-CRADLE-Transient-Ransomware-Kill-Chain-Detection-Backup-Restore-MEC-Micro-Datacenter-SRN}.}}
+
+\markboth{IEEE Transactions on Dependable and Secure Computing (submitted)}%
+{Nguyen: Transient Security--Dependability of Ransomware Kill-Chains in MEC Micro-Datacenters}
+
+\maketitle
+
+\begin{abstract}
+Multi-access edge computing (MEC) micro-datacenters place a handful of
+virtualized servers at the network edge, where they are exposed to
+crypto-ransomware campaigns that move laterally, steal data, and then encrypt it
+to deny service. Unlike a classical breach, a ransomware incident is
+survivable: locked servers can be restored from immutable backups, so its true
+cost is the transient loss of confidentiality, service, and data recency accrued
+during the race between the attacker's kill-chain and the defender's
+detect-and-restore response. We develop CRADLE, a continuous-time Markov reward
+model, drawn as a stochastic reward net, of an ordered
+compromise--exfiltrate--encrypt--lock kill-chain on a MEC micro-datacenter,
+defended by an endpoint monitor whose detection hazard grows with the
+encryption and exfiltration footprint and by an isolate-and-restore response
+with explicit recovery-point and recovery-time semantics. We derive transient
+state probabilities, accumulated-reward security losses, first-passage
+detection and resolution distributions, and closed per-incident expectations
+via the fundamental matrix, and we prove the footprint-aware detection breaks
+the memoryless recovery law of prior uniform-recovery models. A defender
+co-design procedure jointly tunes detection sensitivity and backup cadence to
+minimize expected total cost, tracing a security-versus-spend Pareto frontier.
+An independent Gillespie simulation validates every analytic result. The study
+yields actionable, and at times counterintuitive, guidance for edge ransomware
+resilience.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Multi-access edge computing, ransomware, kill-chain, stochastic reward nets,
+continuous-time Markov chains, transient analysis, dependability, security,
+backup and restore, moving-target defense, performability.
+\end{IEEEkeywords}
+
+% ======================================================================= %
+\section{Introduction}
+\IEEEPARstart{M}{ulti-access} edge computing (MEC) pushes computation to
+micro-datacenters (MEDCs) of a few virtualized servers placed beside base
+stations, delivering the low latency that immersive, industrial and vehicular
+applications demand~\cite{mao2017survey,etsi_mec}. That proximity is also an
+attack surface: an MEDC sits in a physically and administratively exposed
+location, hosts multi-tenant virtual machines and containers, and is a natural
+staging point for adversaries seeking the data and control flows that traverse
+the edge~\cite{roman2018survey}. The dominant monetized threat against such
+fleets today is \emph{crypto-ransomware}: an adversary gains an initial
+foothold, moves laterally between servers, exfiltrates data for double-extortion
+leverage, and then encrypts data at rest to deny service until a ransom is
+paid~\cite{kharraz2015gordian,alrimy2018ransomware}.
+
+Quantitative stochastic models have proven invaluable for reasoning about the
+security and dependability of such systems before deployment. The MEDC-under-
+attack model of Liu \emph{et al.}~\cite{liu2021transient} is the closest
+antecedent: it analyses a lateral-movement campaign on an MEDC as an absorbing
+continuous-time Markov chain (CTMC) and computes transient infection,
+exfiltration and loss metrics. That model, however, makes two simplifications
+that matter for ransomware. First, it treats \emph{recovery} as a single uniform
+rate to an absorbing ``defense-deployed'' state, independent of how far the
+attack has progressed---so the recovery probability is exactly memoryless. In
+reality, detection is driven by the attacker's own noise: encryption produces a
+high-entropy I/O storm and mass data egress that an endpoint monitor sees
+precisely \emph{because} the campaign is advancing. Second, it has no notion of
+\emph{data-at-rest denial and its reversal}: encryption is not modelled as a
+recoverable service-denial state, and there is no backup-and-restore layer with
+recovery-point (RPO, how much data is lost) or recovery-time (RTO, how long
+restoration takes) semantics---exactly the levers a defender actually controls.
+
+This paper closes that gap. We propose \textbf{CRADLE} (\emph{Crypto-Ransomware
+Attack: Detection-race, Loss and restore-Economics}), a transient Markov reward
+model, expressed as a stochastic reward net (SRN), of a crypto-ransomware
+double-extortion kill-chain on an MEDC, defended by a footprint-aware endpoint
+detection-and-response (EDR) monitor and an immutable-backup isolate-and-restore
+response. A ransomware incident in CRADLE is \emph{survivable}: every trajectory
+is eventually restored, and the object of study is the transient security and
+dependability loss---confidentiality, service availability, data recency, and
+downtime---accumulated while the kill-chain races the response.
+
+Our contributions are:
+\begin{itemize}
+\item \textbf{An ordered double-extortion ransomware SRN} (Section~\ref{sec:model})
+whose per-server kill-chain is \emph{Vulnerable$\to$Compromised$\to$Exfiltrating
+$\to$Encrypting$\to$Locked}, with lateral movement scaling in the active
+footprint, and in which encryption is a \emph{recoverable} service-denial state
+rather than an absorbing breach.
+\item \textbf{A footprint-aware detection hazard} keyed on the
+encryption/exfiltration I/O footprint, coupled to an \textbf{isolate-and-restore
+response with explicit RPO/RTO} and imperfect restore coverage
+(Section~\ref{sec:arch}--\ref{sec:model}). We prove that this coupling breaks the
+memoryless recovery law of uniform-recovery models: the resolution curve is
+S-shaped, not exponential.
+\item \textbf{Exact transient and per-incident measures}
+(Section~\ref{sec:measures}): transient probabilities and accumulated-reward
+losses via matrix exponentials, first-passage detection and resolution
+distributions, and closed per-incident expectations (mean time-to-detection,
+mean time-to-resolution, expected datasets exfiltrated, denial server-days, and
+data loss at restore) via the fundamental matrix.
+\item \textbf{A defender co-design algorithm} (Section~\ref{sec:algo}) that
+jointly optimizes detection sensitivity and backup cadence to minimize expected
+total cost, tracing the security-versus-operational-spend Pareto frontier and
+quantifying the penalty of a detection-blind backup schedule.
+\item \textbf{A dual analytic/simulation validation}
+(Section~\ref{sec:valid}) and a numerical study (Section~\ref{sec:results})
+that surface actionable design guidance, including the counterintuitive result
+that sharper detection lets a defender back up \emph{less} often.
+\end{itemize}
+
+% ======================================================================= %
+\section{Related Work}\label{sec:related}
+\textbf{Stochastic dependability and security modelling.} Markov reward models,
+stochastic Petri/reward nets and semi-Markov processes are the standard vehicles
+for quantifying availability, reliability and security of computing
+systems~\cite{trivedi2016probability,trivedi2017reliability,nicol2004modelbased,
+muppala1994srn}. Trivedi and co-workers pioneered the unified treatment of
+performance, dependability and security (``performability'' and quantitative
+security) that this paper follows. The dependability/security taxonomy of
+Avi\v{z}ienis \emph{et al.}~\cite{avizienis2004basic} frames encryption-based
+denial as a combined integrity-and-availability fault whose handling
+(detection, isolation, recovery) is precisely what CRADLE quantifies.
+Intrusion-tolerance models in this lineage---for instance the state-transition
+security model of Madan \emph{et al.}~\cite{madan2004method}, which derives mean
+time to security failure from an absorbing CTMC---established the reward- and
+first-passage-based measures that we lift here from a single host to a
+footprint-coupled MEDC fleet with data-centric restore.
+
+\textbf{MEDC and edge under attack.} Liu \emph{et al.}~\cite{liu2021transient}
+model a lateral-movement attack on an MEDC as an absorbing CTMC with a uniform
+recovery to a ``good'' state; it is our direct antecedent and baseline. A
+subsequent line models \emph{self-propagating} attacks on micro-segmented edge
+fabrics with two competing absorbing outcomes (contained vs.\ irreversibly
+breached) and detection hazards that grow with the compromised-node
+count~\cite{roman2018survey}. CRADLE differs in threat model and objective: our
+detection hazard is keyed on the \emph{encryption/exfiltration} footprint rather
+than compromised-node count; encryption is a \emph{recoverable} denial state,
+not a terminal breach; and our response is a backup \emph{restore} with RPO/RTO
+data-loss economics rather than a re-image.
+
+\textbf{Ransomware analysis.} Empirical and systems work dissects ransomware
+behaviour and defenses---file-system self-healing, decoy monitoring and
+behavioural detection~\cite{kharraz2015gordian,alrimy2018ransomware,
+continella2016shieldfs}. These are measurement/mechanism studies; to our
+knowledge no prior transient Markov reward model captures the
+exfiltrate-then-encrypt kill-chain together with detection and backup-restore
+economics.
+
+\textbf{Moving-target defense and proactive recovery.} MTD (IP shuffling, VM
+migration, re-imaging) and proactive/rejuvenation-based recovery reset attacker
+progress on a timer or a trigger~\cite{jajodia2011mtd,huang1995rejuvenation}. Our
+restore is conceptually a triggered reset, but it is \emph{data-centric}: what is
+restored is encrypted data from an immutable backup, and the residual cost is the
+recovery point, an aspect these works do not model.
+
+\textbf{Numerical methods.} We use the matrix exponential for transient
+solutions, Jensen's uniformization as an independent
+cross-check~\cite{reibman1988transient}, a Van~Loan-style augmented exponential
+for accumulated rewards~\cite{vanloan1978,moler2003nineteen}, the fundamental
+matrix for per-incident expectations, and Gillespie's exact stochastic
+simulation for validation~\cite{gillespie1977exact}.
+
+% ======================================================================= %
+\section{System Architecture and Threat Model}\label{sec:arch}
+
+\subsection{Architecture}
+Fig.~\ref{fig:arch} depicts the system. An MEDC hosts $m$ MEC servers behind one
+or more base stations, each running a virtualization stack (hypervisor or
+container engine) that instantiates tenant services close to endpoint and
+IoT/CPS devices. Two defensive planes overlay the compute fabric. An
+\emph{EDR monitor} continuously observes host and network telemetry; its alert
+hazard rises with the volume of ransomware-indicative activity---high-entropy
+write bursts from encryption and anomalous data egress from exfiltration. An
+\emph{immutable-backup} subsystem periodically snapshots server data to
+write-once storage; upon an incident it drives an \emph{isolate-and-restore}
+response that network-isolates the MEDC (halting lateral movement and
+exfiltration) and restores servers from the last good snapshot.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\scriptsize,
+  srv/.style={draw,rounded corners=1pt,minimum width=6mm,minimum height=5mm,fill=blue!8},
+  box/.style={draw,rounded corners=2pt,inner sep=2.2mm},
+  plane/.style={draw,rounded corners=2pt,align=center,inner sep=1.4mm,text width=30mm},
+  adv/.style={draw,rounded corners=2pt,fill=red!8,align=center,inner sep=1.4mm,text width=42mm},
+  ar/.style={-{Latex[length=1.6mm]}}]
+% devices
+\node (dev) [align=center] {IoT / CPS\\endpoints};
+\node (bs) [draw,rounded corners=2pt,right=4mm of dev,align=center] {base\\station};
+% MEDC box with m servers
+\node (s1) [srv,right=7mm of bs] {S$_1$};
+\node (s2) [srv,right=1.2mm of s1] {S$_2$};
+\node (s3) [srv,right=1.2mm of s2] {S$_3$};
+\node (s4) [srv,right=1.2mm of s3] {S$_4$};
+\begin{scope}[on background layer]
+\node (medc) [box,fit=(s1)(s4),label=above:{\textbf{MEC micro-datacenter (MEDC)}}] {};
+\end{scope}
+\node (cloud) [draw,cloud,aspect=2,right=6mm of s4,minimum width=12mm] {cloud};
+% adversary
+\node (att) [adv,above=9mm of medc.north] {adversary:\ access $\to$ lateral $\to$ exfiltrate $\to$ encrypt};
+% defensive planes (spread wide, below the far-left and far-right anchors)
+\node (edr) [plane,fill=purple!8,text width=27mm,anchor=north] at ([yshift=-10mm]bs.south)
+  {\textbf{EDR monitor}\\ $\delta(s){=}\delta_0{+}\kappa_x x{+}\kappa_b b{+}\kappa_c c$};
+\node (bkp) [plane,fill=green!8,text width=27mm,anchor=north] at ([yshift=-10mm]cloud.south)
+  {\textbf{immutable backup}\\ restore $\eta(c)$, RPO $w_L$};
+% arrows
+\draw[ar] (dev)--(bs); \draw[ar] (bs)--(s1.west|-bs); \draw[ar] (s4)--(cloud);
+\draw[ar,red,dashed] (att.south)--(medc.north);
+\draw[ar,purple,dashed] (edr.north)--(edr.north|-medc.south);
+\draw[ar,green!50!black,dashed] (bkp.north|-medc.south)--(bkp.north);
+\end{tikzpicture}
+\caption{CRADLE system architecture: an MEDC of $m$ MEC servers, a
+footprint-aware EDR monitor, and an immutable-backup isolate-and-restore plane,
+under a crypto-ransomware kill-chain.}
+\label{fig:arch}
+\end{figure}
+
+\subsection{Threat model}
+The adversary follows a ransomware double-extortion kill-chain. It obtains
+initial access to one server, then propagates \emph{laterally} (the more servers
+it controls, the faster it spreads). On a controlled server it \emph{exfiltrates}
+data (confidentiality loss and extortion leverage) and only \emph{then}
+\emph{encrypts} it, completing to a \emph{locked} state that denies service. The
+defender does not know it is under attack until the EDR fires; detection is
+imperfect and its timeliness depends on the attacker's footprint. We assume
+network isolation is effective once triggered (halting further spread and
+egress), that in-flight host-local encryption may still complete before restore,
+and that immutable backups are not themselves corruptible (a design goal of
+modern write-once backup). We do not model the ransom-payment decision: CRADLE is
+a defender-side resilience model whose premise is restore-not-pay.
+
+% ======================================================================= %
+\section{The CRADLE Stochastic Reward Net}\label{sec:model}
+
+\subsection{State space}
+The MEDC has $m$ servers, each in exactly one kill-chain stage. A transient
+(operational) state is the tuple
+\begin{equation}
+s=(a,x,b,c,d),
+\end{equation}
+where $a,x,b,c$ count servers that are \emph{Compromised}, \emph{Exfiltrating},
+\emph{Encrypting} and \emph{Locked}, and $d\in\{0,1\}$ is the campaign phase:
+$\stealth$ (stealth/undetected) or $\response$ (response/contained). The number
+of clean \emph{Vulnerable} servers is $V=m-p$ with footprint $p=a+x+b+c$, and the
+\emph{active} (non-locked) foothold is $h=a+x+b$. Validity requires
+$a,x,b,c\ge0$ and $p\le m$; the stealth phase exists for every lattice point,
+the response phase only for $p\ge1$ (a campaign must exist to be responded to).
+A single absorbing state $\textsc{Good}$ represents the fully restored,
+incident-resolved MEDC. Table~\ref{tab:states} summarizes the encoding. The
+lattice has $\binom{m+4}{4}$ points per phase, giving
+$\Cnt$ transient states $+1$ for the base case $m=\Cm$.
+
+\begin{table}[t]
+\caption{State encoding of the CRADLE SRN.}
+\label{tab:states}
+\centering\footnotesize
+\begin{tabular}{@{}clc@{}}
+\toprule
+symbol & meaning & service\\
+\midrule
+$V=m-p$ & Vulnerable (clean, serving) & up\\
+$a$ & Compromised (foothold, staging) & up\\
+$x$ & Exfiltrating (data egress in progress) & up (leaking)\\
+$b$ & Encrypting (crypto in progress) & degraded\\
+$c$ & Locked (data denied) & \textbf{down}\\
+$d$ & phase: $0$ stealth / $1$ response & --\\
+$\textsc{Good}$ & restored (absorbing) & up\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Transition rules}
+Fig.~\ref{fig:srn} shows the kill-chain and phase automaton; the aggregate rate
+laws (verified arc-by-arc against the reachability graph) are in
+Table~\ref{tab:trans}. In the stealth phase, a clean server is first compromised
+by lateral movement at a rate proportional to the active foothold $h$ (epidemic
+spread), inheriting the footprint-scaling of~\cite{liu2021transient}; a
+compromised server begins exfiltration at rate $\epsilon$ each; an exfiltrating
+server completes (one dataset stolen) and \emph{then} begins encryption at rate
+$\phi$; an encrypting server completes to Locked at rate $\rho$. The campaign is
+detected---moving to the response phase---at the footprint-aware hazard
+\begin{equation}
+\delta(s)=\delta_0+\kappa_a a+\kappa_x x+\kappa_b b+\kappa_c c,\qquad
+\delta(s)\!=\!0 \text{ if } p{=}0,
+\label{eq:delta}
+\end{equation}
+with $\kappa_c>\kappa_b>\kappa_x\ge\kappa_a$: locked servers raise user-visible
+alarms, encryption is a noisy I/O storm, exfiltration leaves an egress
+signature, and a bare foothold is nearly silent. In the response phase, network
+isolation halts lateral movement, exfiltration and new encryption onsets;
+host-local encryption already running still completes ($b\to c$ at $\rho$), and
+the restore fires to $\textsc{Good}$ at the state-dependent rate
+\begin{equation}
+\eta(c)=\frac{1}{\mathrm{RTO}_0+\mathrm{RTO}_1\,c},
+\label{eq:eta}
+\end{equation}
+i.e.\ the recovery time grows with the number of locked servers to be restored.
+With restore coverage $\mathrm{cov}_r\in(0,1]$, a fraction $1-\mathrm{cov}_r$ of
+restores are incomplete and leave a residual foothold, returning the campaign to
+$(1,0,0,0,0)$.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[font=\footnotesize,>=Latex,node distance=10mm,
+  st/.style={draw,circle,minimum size=6.5mm,inner sep=0pt},
+  ph/.style={draw,rounded corners=2pt,minimum height=6mm,inner sep=1.6mm},
+  ar/.style={->}]
+% per-server kill chain
+\node (V) [st,fill=green!10] {$V$};
+\node (A) [st,right=of V,fill=blue!6] {$a$};
+\node (X) [st,right=of A,fill=orange!12] {$x$};
+\node (B) [st,right=of X,fill=blue!16] {$b$};
+\node (L) [st,right=of B,fill=red!14] {$c$};
+\draw[ar] (V)--(A) node[midway,above]{$h\beta_L$};
+\draw[ar] (A)--(X) node[midway,above]{$a\epsilon$};
+\draw[ar] (X)--(B) node[midway,above]{$x\phi$};
+\draw[ar] (B)--(L) node[midway,above]{$b\rho$};
+\node[above=1mm of X] {\emph{exfiltrate-then-encrypt (double extortion)}};
+% phase automaton
+\node (S0) [ph,below=13mm of A,fill=purple!6] {\stealth\ (stealth)};
+\node (S1) [ph,right=16mm of S0,fill=purple!14] {\response\ (response)};
+\node (G)  [ph,right=14mm of S1,fill=green!14] {\textsc{Good}};
+\draw[ar] (S0)--(S1) node[midway,above]{$\delta(s)$} node[midway,below]{detect};
+\draw[ar] (S1)--(G)  node[midway,above]{$\eta(c)\mathrm{cov}_r$} node[midway,below]{restore};
+\draw[ar,dashed] (S1) to[out=-40,in=-140] node[midway,below]{$\eta(c)(1{-}\mathrm{cov}_r)$} (S0);
+\draw[ar,gray,dotted] (L) -- (S0.north-|L);
+\end{tikzpicture}
+\caption{CRADLE kill-chain (top: per-server stages with aggregate rates) and
+campaign-phase automaton (bottom: stealth $\to$ response $\to$ restored). The
+detection hazard $\delta(s)$ grows with the encryption/exfiltration footprint;
+the restore rate $\eta(c)$ falls with the number of locked servers.}
+\label{fig:srn}
+\end{figure}
+
+\begin{table}[t]
+\caption{Transition (rate-law) table of the CRADLE SRN.}
+\label{tab:trans}
+\centering\footnotesize
+\input{tables/tab_transitions}
+\end{table}
+
+\subsection{Generator}
+Let $\mathcal{S}$ be the transient state set and $\textsc{Good}$ the absorbing
+state. The infinitesimal generator $Q$ has off-diagonal entries $q_{s,s'}$ equal
+to the sum of rates of arcs $s\to s'$ and diagonal $q_{s,s}=-\sum_{s'\ne s}
+q_{s,s'}$; the $\textsc{Good}$ row is zero. Algorithm~\ref{alg:gen} synthesizes
+$Q$ from the rate laws; its rows sum to zero by construction, which we verify
+numerically. Default parameters (per day) are listed in Table~\ref{tab:params};
+they place the incident on a multi-day timescale in which detection, encryption
+and restore genuinely compete.
+
+\begin{table}[t]
+\caption{Default parameters (time unit: days).}
+\label{tab:params}
+\centering\footnotesize
+\input{tables/tab_params}
+\end{table}
+
+% ======================================================================= %
+\section{Security--Dependability Measures}\label{sec:measures}
+Let $\pi_0$ be the initial distribution (all mass on the clean state
+$(0,0,0,0,0)$) and $\pi(t)=\pi_0 e^{Qt}$ the transient distribution.
+
+\textbf{Transient marginals.} The expected number of servers in a stage is a
+reward-weighted marginal, e.g.\ $\E[c(t)]=\sum_{s}c_s\,\pi_s(t)$; the expected
+available service fraction is $A(t)=1-\E[c(t)]/m$, and the probability of service
+denial is $\Prob(c(t)\ge1)$.
+
+\textbf{Accumulated-reward losses.} For a reward-rate vector $r$, the expected
+accumulated reward to time $t$ is $L_r(t)=\int_0^t r^\top\pi(u)\,du$, obtained
+without quadrature from the augmented exponential
+\begin{equation}
+\begin{bmatrix}\pi(t)\\ \mathbf{A}(t)\end{bmatrix}
+=\exp\!\left(\begin{bmatrix}Q^\top & 0\\ I & 0\end{bmatrix}t\right)
+\begin{bmatrix}\pi_0\\ 0\end{bmatrix},\quad
+L_r(t)=r^\top\mathbf{A}(t).
+\label{eq:accum}
+\end{equation}
+We instantiate $r$ as the locked count $c$ (service-denial server-days), the
+exfiltration-completion rate $\phi x$ restricted to stealth (datasets stolen),
+and the restore-flux data loss $\eta(c)w_L c$ restricted to response (data lost
+at restore, an RPO quantity).
+
+\textbf{First-passage distributions.} Because a trajectory is stealthy exactly
+until detection, the detection CDF is
+$\Prob(\text{detected}\le t)=1-\sum_{s:d_s=0}\pi_s(t)$, and the resolution
+(restore) CDF is $\Prob(\text{resolved}\le t)=\pi_{\textsc{Good}}(t)$.
+
+\textbf{Per-incident expectations (fundamental matrix).} Let $U$ be $Q$
+restricted to $\mathcal{S}$. The expected sojourn vector before absorption is
+\begin{equation}
+\tau^\top=\pi_{0,\mathcal{S}}^\top(-U)^{-1},
+\label{eq:tau}
+\end{equation}
+from which every per-incident total is the linear functional $\tau^\top r$:
+mean time-to-detection $\mathrm{MTTD}=\sum_{d_s=0}\tau_s$, mean response duration
+$\sum_{d_s=1}\tau_s$, mean time-to-resolution
+$\mathrm{MTTR}=\sum_s\tau_s$, expected datasets exfiltrated
+$\phi\sum_{d_s=0}x_s\tau_s$, expected denial server-days $\sum_s c_s\tau_s$, and
+expected data loss $w_L\sum_{d_s=1}\eta(c_s)c_s\tau_s$. The identity
+$\mathrm{MTTR}=\mathrm{MTTD}+\mathbb{E}[\text{response}]$ holds exactly.
+
+\textbf{Structural result (non-memoryless recovery).} In a uniform-recovery
+model where every transient state exits to the absorbing state at a single rate
+$\gamma$, the resolution CDF is exactly $1-e^{-\gamma t}$. CRADLE is
+qualitatively different, as the following makes precise.
+
+\begin{lemma}[Non-memoryless resolution]\label{lem:nonexp}
+For any parameters with $\delta_0\!\ge\!0$ and $\eta(\cdot)\!<\!\infty$, the
+time-to-resolution $T_R$ (first passage from the clean state to $\textsc{Good}$)
+is a phase-type random variable with density $f_{T_R}(0)=0$. In particular
+$T_R$ is not exponentially distributed, and the resolution CDF is not of the
+form $1-e^{-\gamma t}$ for any $\gamma>0$.
+\end{lemma}
+\begin{proof}
+Absorption into $\textsc{Good}$ occurs only from response states ($d{=}1$), which
+are reachable only through the detection event ($d\!:\!0\!\to\!1$); no arc leads
+from a stealth state directly to $\textsc{Good}$. Hence every path to absorption
+visits at least two distinct transient states, so $T_R\ge T_1+T_2$ with $T_1$
+the (positive) time to detection and $T_2$ the (positive) residual to restore.
+As a first passage in a finite CTMC starting from a single transient state,
+$T_R$ is phase-type; because at least two phases are traversed with probability
+one, its density at the origin vanishes, $f_{T_R}(0^+)=0$. The exponential
+density is $\gamma e^{-\gamma t}$ with $f(0^+)=\gamma>0$, so $T_R$ cannot be
+exponential.
+\end{proof}
+
+The stealth window thus imprints an initial ``dead time'' on the resolution
+curve, making it S-shaped; the coupling of detection to attack progress is
+exactly what a uniform-recovery model~\cite{liu2021transient} cannot represent.
+Section~\ref{sec:results} quantifies the departure.
+
+\textbf{Security--dependability cost.} We weight the incident harms into a
+single security-dependability loss and add the defender's operational spend:
+\begin{align}
+S &= c_{\mathrm{br}}\E[\text{exfil}]+c_{\mathrm{dn}}\E[\text{denial}]
+   +c_{\mathrm{dl}}\E[\text{loss}]+c_{\mathrm{rt}}\E[\text{response}],\\
+J &= S + \underbrace{C_{\mathrm{mon}}(\sigma_D)+C_{\mathrm{bkp}}(\tau_b)}_{O},
+\label{eq:cost}
+\end{align}
+where $\sigma_D$ and $\tau_b$ are the defender levers introduced next.
+
+% ======================================================================= %
+\section{Solution Algorithms and Defender Co-Design}\label{sec:algo}
+
+\subsection{Generator synthesis and exact solution}
+Algorithm~\ref{alg:gen} builds $Q$; the transient distribution and accumulated
+rewards follow from \eqref{eq:accum} by forming a single base-step propagator
+$e^{Q\Delta t}$ and composing it along a uniform grid (exact, no step error). The
+per-incident totals follow from the one linear solve~\eqref{eq:tau}. We
+cross-check the matrix exponential against Jensen's uniformization.
+
+\begin{algorithm}[t]
+\caption{CRADLE generator synthesis}
+\label{alg:gen}
+\begin{algorithmic}[1]
+\REQUIRE parameters $\theta$, size $m$
+\STATE enumerate $\mathcal{S}=\{(a,x,b,c,d): a{+}x{+}b{+}c\le m,\ d\in\{0,1\},\
+(d{=}1\Rightarrow p\ge1)\}$
+\STATE $Q\gets 0$
+\FORALL{$s=(a,x,b,c,d)\in\mathcal{S}$}
+  \FORALL{$(s',\lambda)$ in \textsc{Transitions}$(s;\theta)$ (Table~\ref{tab:trans})}
+    \STATE $Q_{s,s'}\gets Q_{s,s'}+\lambda$;\quad $Q_{s,s}\gets Q_{s,s}-\lambda$
+  \ENDFOR
+\ENDFOR
+\STATE \textbf{assert} $\max_s|\sum_{s'}Q_{s,s'}|<\varepsilon$
+\RETURN $Q$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Defender co-design}
+The defender holds two orthogonal levers. \emph{Detection sensitivity}
+$\sigma_D\ge1$ scales the footprint coefficients
+$(\kappa_x,\kappa_b,\kappa_c)\mapsto\sigma_D(\kappa_x,\kappa_b,\kappa_c)$---a
+sharper EDR shortens the stealth window but costs more to run,
+$C_{\mathrm{mon}}(\sigma_D)=c_{\mathrm{mon}}\sigma_D$. \emph{Backup cadence}
+$\tau_b$ (hours) sets the recovery point: the data loss per locked server scales
+with $\tau_b$ (i.e.\ $w_L\propto\tau_b$), while the backup/storage overhead scales
+with the frequency, $C_{\mathrm{bkp}}(\tau_b)=c_{\mathrm{bkp}}\,\tau_{b0}/\tau_b$.
+Algorithm~\ref{alg:codesign} minimizes $J(\sigma_D,\tau_b)$ of \eqref{eq:cost}:
+it maps the surface on a grid, then polishes with alternating one-dimensional
+golden-section searches (each objective evaluation is one
+solve~\eqref{eq:tau}). Sweeping the levers and retaining non-dominated
+$(O,S)$ pairs yields the Pareto frontier.
+
+\begin{algorithm}[t]
+\caption{Detection/backup co-design}
+\label{alg:codesign}
+\begin{algorithmic}[1]
+\REQUIRE base parameters $\theta$, cost config, lever boxes
+$[\sigma_{lo},\sigma_{hi}],[\tau_{lo},\tau_{hi}]$
+\STATE evaluate $J$ on a $\sigma_D\times\tau_b$ grid via
+Alg.~\ref{alg:gen}+\eqref{eq:tau}; set $(\sigma_D,\tau_b)\gets$ grid minimizer
+\REPEAT
+  \STATE $\tau_b\gets$ \textsc{GoldenMin}$_{\tau}\ J(\sigma_D,\cdot)$
+  \STATE $\sigma_D\gets$ \textsc{GoldenMin}$_{\sigma}\ J(\cdot,\tau_b)$
+\UNTIL{converged}
+\STATE \textbf{return} $(\sigma_D^\star,\tau_b^\star)$, $J^\star$, and the
+non-dominated frontier $\{(O,S)\}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Independent simulation}
+Algorithm-agnostic validation is provided by an exact Gillespie
+simulation~\cite{gillespie1977exact} that consumes only the per-state transition
+list, evolves each trajectory clean-to-restored, and rebuilds the transient
+probabilities, CDFs and per-incident totals with confidence intervals.
+
+% ======================================================================= %
+\section{Simulation Validation}\label{sec:valid}
+We validate the analytic engine three ways (a ``verification triangle''):
+(i) the matrix exponential against Jensen uniformization (agreement to solver
+tolerance, $\sim\!10^{-12}$); (ii) the fundamental-matrix per-incident totals
+against the time-integrated accumulated reward of \eqref{eq:accum} (agreement to
+$\sim\!10^{-15}$); and (iii) an independent Gillespie simulation of
+$\CssaTraj$ trajectories. Table~\ref{tab:valid} reports the third leg: every
+per-incident expectation agrees within the $95\%$ confidence interval, as do the
+detection and resolution CDFs (maximum discrepancy $<0.01$). All seventeen
+automated checks pass.
+
+\begin{table}[t]
+\caption{Analytic vs.\ Gillespie simulation ($\CssaTraj$ trajectories).}
+\label{tab:valid}
+\centering\footnotesize
+\input{tables/tab_validation}
+\end{table}
+
+% ======================================================================= %
+\section{Numerical Results and Analysis}\label{sec:results}
+Unless stated otherwise, results use the defaults of Table~\ref{tab:params}
+($m=\Cm$) over a $20$-day horizon. Analytic curves are solid; independent
+simulation estimates are markers.
+
+\subsection{Kill-chain dynamics and service denial}
+Fig.~\ref{fig:stage} tracks the expected number of servers in each kill-chain
+stage. The compromise and exfiltration populations rise first, feeding a delayed
+wave of encryption and then locking; all populations then collapse as detection
+triggers isolation and restore. Fig.~\ref{fig:avail} translates this into
+service terms: the expected available fraction dips during the encryption wave
+and the probability of service denial peaks before restoration returns the MEDC
+to full service. The transient nature is essential---a steady-state model would
+miss the peak denial entirely.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig01_stage_counts}
+\caption{Expected number of servers per kill-chain stage over time. Markers:
+Gillespie simulation.}
+\label{fig:stage}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig02_availability}
+\caption{Expected available service fraction and probability of service denial.}
+\label{fig:avail}
+\end{figure}
+
+\subsection{Accumulated security--dependability loss}
+Fig.~\ref{fig:loss} decomposes the accumulated expected loss $S(t)$ into
+exfiltration, service denial, RPO data loss and response components. The loss
+accrues steeply during the active phase and saturates once incidents resolve;
+its composition---confidentiality vs.\ availability vs.\ recency---tells a
+defender which harm dominates and thus which lever to pull.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig03_loss_accum}
+\caption{Accumulated expected security--dependability loss $S(t)$, decomposed.}
+\label{fig:loss}
+\end{figure}
+
+\subsection{The detection race and non-memoryless recovery}
+Fig.~\ref{fig:detect} shows the detection CDF for a range of detection
+sensitivities: sharper detection compresses the stealth window, and---because
+the hazard grows with the attacker's own encryption footprint---even a modest
+sensitivity eventually detects every campaign. Fig.~\ref{fig:resolve} is the
+headline structural result: the resolution curve is distinctly S-shaped, with an
+initial dead-time while the campaign is still stealthy, and departs from the
+best-fit memoryless exponential $1-e^{-t/\mathrm{MTTR}}$ by a wide margin
+($\Cresdev$ at its maximum). A uniform-recovery model of the
+form~\cite{liu2021transient} cannot represent this behaviour; the coupling of
+detection to attack progress is precisely what makes edge ransomware resolution
+non-memoryless.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig04_detection_race}
+\caption{Detection CDF vs.\ detection sensitivity $\sigma_D$: sharper detection
+compresses the stealth window.}
+\label{fig:detect}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig05_resolution}
+\caption{Resolution (restore) probability: CRADLE is S-shaped and non-memoryless,
+unlike the exponential recovery of uniform-recovery models. Markers: simulation.}
+\label{fig:resolve}
+\end{figure}
+
+\subsection{Defender co-design}
+Fig.~\ref{fig:surface} maps the expected total cost $J$ over the
+detection-sensitivity/backup-cadence plane; it is convex-like with a clear
+interior basin. Cost rises steeply at short backup intervals (storage overhead)
+and at high sensitivity (monitoring overhead), while very loose backups or dull
+detection let the security loss blow up. Algorithm~\ref{alg:codesign} locates the
+optimum $(\sigma_D^\star,\tau_b^\star)=(\Csigstar,\Ctaustar\,\text{h})$, where the
+security loss and operational spend are balanced ($S^\star\!\approx\!O^\star$).
+Fig.~\ref{fig:pareto} traces the corresponding Pareto frontier; the min-total-cost
+design sits at its knee, where marginal security gain equals marginal spend.
+Table~\ref{tab:codesign} contrasts the baseline, a detection-blind
+backup-only optimizer, and the co-design.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig06_costsurface}
+\caption{Expected total cost $J(\sigma_D,\tau_b)$ with the co-design optimum.}
+\label{fig:surface}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig07_pareto}
+\caption{Security-loss ($S$) vs.\ operational-spend ($O$) Pareto frontier; the
+star is the min-total-cost design.}
+\label{fig:pareto}
+\end{figure}
+
+\begin{table}[t]
+\caption{Baseline vs.\ detection-blind vs.\ co-design.}
+\label{tab:codesign}
+\centering\footnotesize
+\input{tables/tab_codesign}
+\end{table}
+
+The counterintuitive finding is in the levers themselves
+(Figs.~\ref{fig:levsig}--\ref{fig:levtau}). A detection-blind operator, unable to
+reduce the number of servers that get locked, over-invests in \emph{frequent}
+backups to fight data loss and still pays a penalty of $\Cblindpen\%$ relative to
+the co-design. The co-designer instead sharpens detection so that far fewer
+servers ever reach the locked state---cutting expected denial by $\Cdenialdroppct\%$---and
+can therefore \emph{relax} the backup interval, saving storage overhead.
+\emph{Better detection buys looser backups}: the two levers are economic
+substitutes, and treating them independently is strictly sub-optimal.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig08_lever_sigma}
+\caption{Effect of detection sensitivity $\sigma_D$ on the incident harms and on
+total cost $J$ (dashed).}
+\label{fig:levsig}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig09_lever_tau}
+\caption{Effect of backup interval $\tau_b$: data-loss falls but operational cost
+rises as backups get more frequent; $J$ has an interior optimum.}
+\label{fig:levtau}
+\end{figure}
+
+\subsection{MEDC size and parameter sensitivity}
+Fig.~\ref{fig:scaling} scales the MEDC from $m=\CmLo$ to $\CmHi$ servers (state
+space $\CntLo$ to $\CntHi$). The per-incident harms \emph{saturate}: because
+detection resolves the incident before the campaign traverses the whole fleet,
+the expected datasets exfiltrated and denial server-days barely grow with size.
+The practical message is that, for edge micro-datacenters, detection latency and
+backup recency---not fleet size---govern ransomware risk. Fig.~\ref{fig:sens}
+ranks the drivers of expected data loss by scaled sensitivity: the backup
+recovery-point $w_L$ dominates, followed by the encryption and exfiltration
+completion rates, while sharper detection coefficients reduce it---confirming the
+co-design intuition.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig10_scaling}
+\caption{Per-incident measures vs.\ MEDC size $m$: harms saturate with fleet size.}
+\label{fig:scaling}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig11_sensitivity}
+\caption{Scaled sensitivity of expected data loss to model parameters.}
+\label{fig:sens}
+\end{figure}
+
+\subsection{Robustness to imperfect restore}
+Real restores sometimes fail to fully evict the adversary---a re-imaged or
+restored server can be re-infected from a missed persistence foothold, and
+double-extortion crews often re-encrypt precisely to punish incomplete recovery.
+Fig.~\ref{fig:cov} sweeps the restore coverage $\mathrm{cov}_r$ from perfect down
+to $0.6$. As coverage degrades, a fraction of incidents relapse into a fresh
+(smaller) campaign before finally resolving, and both the mean
+time-to-resolution and the expected data loss inflate super-linearly---by
+$\CcovMttrPct\%$ and $\CcovLossPct\%$ respectively at $\mathrm{cov}_r=0.7$. The
+practical corollary is that restore \emph{quality} (verified, immutable, fully
+evicting) is not a second-order concern: a cheap-but-leaky restore can erase the
+benefit of an otherwise well-tuned detection/backup co-design.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig12_coverage}
+\caption{Robustness to imperfect restore: as restore coverage $\mathrm{cov}_r$
+degrades (right), relapse inflates resolution time and data loss super-linearly.}
+\label{fig:cov}
+\end{figure}
+
+\subsection{Discussion and design guidance}
+Three guidelines follow. (1) \emph{Instrument for the crypto footprint.}
+Because detection hazard rises with encryption I/O, tuning the EDR toward
+high-entropy write bursts yields the steepest security return.
+(2) \emph{Co-design detection and backups.} They are substitutes; sharper
+detection prevents locking and lets backups be relaxed, so budgeting them
+separately over-spends. (3) \emph{Size is not the risk.} Per-incident harm
+saturates with fleet size, so consolidation for efficiency does not materially
+raise ransomware exposure once detection and restore are in place.
+
+\subsection{Threats to validity}
+CRADLE assumes exponential stage sojourns; heavy-tailed encryption or restore
+times would be better captured by a semi-Markov or phase-type refinement, which
+the accumulated-reward and fundamental-matrix machinery accommodates directly.
+We assume immutable backups are incorruptible and isolation is effective;
+relaxing these adds arcs but not new formalism. The cost weights are
+illustrative---the framework consumes any weights, and the qualitative
+guidance (substitutability of detection and backups, saturation with size) is
+weight-robust across the sweeps we ran. Finally, we exclude the ransom-payment
+game by design; CRADLE models the resilience of a restore-not-pay defender.
+
+% ======================================================================= %
+\section{Conclusion}\label{sec:concl}
+We presented CRADLE, a transient stochastic-reward-net model of a
+crypto-ransomware double-extortion kill-chain on a MEC micro-datacenter,
+defended by a footprint-aware endpoint monitor and an immutable-backup
+isolate-and-restore response. Unlike prior edge-under-attack models, CRADLE
+treats encryption as a recoverable service-denial state rather than an absorbing
+breach, orders exfiltration before encryption to capture double extortion, ties
+the detection hazard to the encryption and exfiltration footprint, and endows the
+response with explicit recovery-point and recovery-time economics. From one
+generator we obtained transient stage and service-denial probabilities,
+accumulated-reward losses in confidentiality, availability and data recency,
+first-passage detection and resolution distributions, and closed per-incident
+expectations via the fundamental matrix. We proved and demonstrated that
+coupling detection to attack progress makes the resolution law non-memoryless, a
+qualitative departure from uniform-recovery models. A co-design procedure
+jointly tuned detection sensitivity and backup cadence to minimize expected total
+cost, revealing a Pareto frontier and the substitutability of the two levers---so
+that sharper detection lets a defender back up less often---while showing that
+per-incident harm saturates with fleet size. An independent exact simulation
+validated every analytic result. Future work will lift the exponential
+assumption to semi-Markov sojourns for heavy-tailed encryption and restore times,
+embed an adaptive, state-triggered response policy, extend the model to
+federations of interacting micro-datacenters, and incorporate the strategic
+ransom-payment decision as a game against the modeled defender.
+
+% ======================================================================= %
+\begin{thebibliography}{99}
+\footnotesize
+
+\bibitem{mao2017survey} Y.~Mao, C.~You, J.~Zhang, K.~Huang, and K.~B.~Letaief,
+``A survey on mobile edge computing: The communication perspective,''
+\emph{IEEE Commun. Surveys Tuts.}, vol.~19, no.~4, pp.~2322--2358, 2017.
+
+\bibitem{etsi_mec} ETSI, ``Multi-access edge computing (MEC); framework and
+reference architecture,'' ETSI GS MEC 003, 2022.
+
+\bibitem{roman2018survey} R.~Roman, J.~Lopez, and M.~Mambo, ``Mobile edge
+computing, Fog \emph{et al.}: A survey and analysis of security threats and
+challenges,'' \emph{Future Gener. Comput. Syst.}, vol.~78, pp.~680--698, 2018.
+
+\bibitem{kharraz2015gordian} A.~Kharraz, W.~Robertson, D.~Balzarotti,
+L.~Bilge, and E.~Kirda, ``Cutting the Gordian knot: A look under the hood of
+ransomware attacks,'' in \emph{Proc. DIMVA}, 2015, pp.~3--24.
+
+\bibitem{alrimy2018ransomware} B.~A.~S.~Al-rimy, M.~A.~Maarof, and
+S.~Z.~M.~Shaid, ``Ransomware threat success factors, taxonomy, and
+countermeasures: A survey and research directions,'' \emph{Comput. Secur.},
+vol.~74, pp.~144--166, 2018.
+
+\bibitem{continella2016shieldfs} A.~Continella \emph{et al.}, ``ShieldFS: A
+self-healing, ransomware-aware filesystem,'' in \emph{Proc. ACSAC}, 2016,
+pp.~336--347.
+
+\bibitem{liu2021transient} B.~Liu, A.~Bobbio, J.~Bai, J.~Martinez, X.~Chang,
+and K.~S.~Trivedi, ``Transient security and dependability analysis of MEC micro
+datacenter under attack,'' in \emph{Proc. Annu. Rel. Maintainab. Symp. (RAMS)},
+2021.
+
+\bibitem{trivedi2016probability} K.~S.~Trivedi, \emph{Probability and Statistics
+with Reliability, Queuing, and Computer Science Applications}, 2nd~ed. Wiley,
+2016.
+
+\bibitem{trivedi2017reliability} K.~S.~Trivedi and A.~Bobbio, \emph{Reliability
+and Availability Engineering: Modeling, Analysis, and Applications}. Cambridge
+Univ. Press, 2017.
+
+\bibitem{nicol2004modelbased} D.~M.~Nicol, W.~H.~Sanders, and K.~S.~Trivedi,
+``Model-based evaluation: From dependability to security,'' \emph{IEEE Trans.
+Dependable Secure Comput.}, vol.~1, no.~1, pp.~48--65, 2004.
+
+\bibitem{muppala1994srn} J.~K.~Muppala, G.~Ciardo, and K.~S.~Trivedi,
+``Stochastic reward nets for reliability prediction,'' \emph{Commun. Reliab.
+Maintainab. Serviceability}, vol.~1, no.~2, pp.~9--20, 1994.
+
+\bibitem{jajodia2011mtd} S.~Jajodia, A.~K.~Ghosh, V.~Swarup, C.~Wang, and
+X.~S.~Wang, Eds., \emph{Moving Target Defense: Creating Asymmetric Uncertainty
+for Cyber Threats}. Springer, 2011.
+
+\bibitem{huang1995rejuvenation} Y.~Huang, C.~Kintala, N.~Kolettis, and
+N.~D.~Fulton, ``Software rejuvenation: Analysis, module and applications,'' in
+\emph{Proc. FTCS}, 1995, pp.~381--390.
+
+\bibitem{reibman1988transient} A.~Reibman and K.~S.~Trivedi, ``Numerical
+transient analysis of Markov models,'' \emph{Comput. Oper. Res.}, vol.~15,
+no.~1, pp.~19--36, 1988.
+
+\bibitem{vanloan1978} C.~Van~Loan, ``Computing integrals involving the matrix
+exponential,'' \emph{IEEE Trans. Autom. Control}, vol.~23, no.~3, pp.~395--404,
+1978.
+
+\bibitem{moler2003nineteen} C.~Moler and C.~Van~Loan, ``Nineteen dubious ways to
+compute the exponential of a matrix, twenty-five years later,'' \emph{SIAM
+Rev.}, vol.~45, no.~1, pp.~3--49, 2003.
+
+\bibitem{gillespie1977exact} D.~T.~Gillespie, ``Exact stochastic simulation of
+coupled chemical reactions,'' \emph{J. Phys. Chem.}, vol.~81, no.~25,
+pp.~2340--2361, 1977.
+
+\bibitem{ussath2016apt} M.~Ussath, D.~Jaeger, F.~Cheng, and C.~Meinel,
+``Advanced persistent threats: Behind the scenes,'' in \emph{Proc. CISS}, 2016,
+pp.~181--186.
+
+\bibitem{neuts1981matrix} M.~F.~Neuts, \emph{Matrix-Geometric Solutions in
+Stochastic Models: An Algorithmic Approach}. Johns Hopkins Univ. Press, 1981.
+
+\bibitem{mitreattack} B.~E.~Strom \emph{et al.}, ``MITRE ATT\&CK: Design and
+philosophy,'' The MITRE Corporation, Tech. Rep., 2020.
+
+\bibitem{keeton2004disaster} K.~Keeton, C.~Santos, D.~Beyer, J.~Chase, and
+J.~Wilkes, ``Designing for disasters,'' in \emph{Proc. USENIX FAST}, 2004,
+pp.~59--72.
+
+\bibitem{ciardo1993srn} G.~Ciardo, J.~Muppala, and K.~S.~Trivedi, ``Analyzing
+concurrent and fault-tolerant software using stochastic reward nets,''
+\emph{J. Parallel Distrib. Comput.}, vol.~15, no.~3, pp.~255--269, 1992.
+
+\bibitem{zhang2010survivability} X.~Zhang, C.~Phillips, and X.~Chen, ``An
+overview of the security of wireless networks,'' \emph{Secur. Commun. Netw.},
+vol.~3, no.~4, pp.~296--318, 2010.
+
+\bibitem{madan2004method} B.~B.~Madan, K.~Go\v{s}eva-Popstojanova,
+K.~Vaidyanathan, and K.~S.~Trivedi, ``A method for modeling and quantifying the
+security attributes of intrusion tolerant systems,'' \emph{Perform. Eval.},
+vol.~56, no.~1--4, pp.~167--186, 2004.
+
+\bibitem{avizienis2004basic} A.~Avi\v{z}ienis, J.-C.~Laprie, B.~Randell, and
+C.~Landwehr, ``Basic concepts and taxonomy of dependable and secure computing,''
+\emph{IEEE Trans. Dependable Secure Comput.}, vol.~1, no.~1, pp.~11--33, 2004.
+
+\bibitem{shevchenko2018ransomware} A.~Gazet, ``Comparative analysis of various
+ransomware virii,'' \emph{J. Comput. Virol.}, vol.~6, no.~1, pp.~77--90, 2010.
+
+\bibitem{sood2013crimeware} A.~K.~Sood and R.~J.~Enbody, ``Crimeware-as-a-service:
+A survey of commoditized crimeware in the underground market,'' \emph{Int. J.
+Crit. Infrastruct. Prot.}, vol.~6, no.~1, pp.~28--38, 2013.
+
+\end{thebibliography}
+
+\end{document}

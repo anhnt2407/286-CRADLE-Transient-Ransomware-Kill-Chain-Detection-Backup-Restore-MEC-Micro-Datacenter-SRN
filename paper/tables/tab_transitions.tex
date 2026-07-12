@@ -1,0 +1,14 @@
+\begin{tabular}{@{}lllc@{}}
+\toprule
+activity & effect on $(a,x,b,c,d)$ & rate & guard\\
+\midrule
+initial access & $(0,0,0,0,0)\!\to\!(1,0,0,0,0)$ & $\beta$ & $p{=}0,V{\ge}1$\\
+lateral move & $a\!\to\!a{+}1$ & $h\,\beta_L$ & $V{\ge}1,h{\ge}1$\\
+exfil.\ onset & $a\!\to\!a{-}1,\,x\!\to\!x{+}1$ & $a\,\epsilon$ & $a{\ge}1,d{=}0$\\
+exfil.\ done & $x\!\to\!x{-}1,\,b\!\to\!b{+}1$ & $x\,\phi$ & $x{\ge}1,d{=}0$\\
+encrypt done & $b\!\to\!b{-}1,\,c\!\to\!c{+}1$ & $b\,\rho$ & $b{\ge}1$\\
+detection & $d\!:\!0\!\to\!1$ & $\delta(s)$ & $p{\ge}1,d{=}0$\\
+restore & $\to\textsc{Good}$ & $\eta(c)\,\mathrm{cov}_r$ & $d{=}1$\\
+restore (residual) & $\to(1,0,0,0,0)$ & $\eta(c)(1{-}\mathrm{cov}_r)$ & $d{=}1$\\
+\bottomrule
+\end{tabular}

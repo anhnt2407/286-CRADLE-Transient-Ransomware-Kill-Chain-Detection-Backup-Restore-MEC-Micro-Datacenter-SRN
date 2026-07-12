@@ -1,0 +1,20 @@
+\begin{tabular}{@{}llrl@{}}
+\toprule
+symbol & meaning & default & unit\\
+\midrule
+$m$ & MEC servers in the MEDC & 4 & servers\\
+$\beta$ & initial-access rate & 0.50 & d$^{-1}$\\
+$\beta_L$ & lateral-movement rate / active foothold & 0.40 & d$^{-1}$\\
+$\epsilon$ & exfiltration-onset rate / compromised & 0.80 & d$^{-1}$\\
+$\phi$ & exfiltration-completion rate / exfiltrating & 1.00 & d$^{-1}$\\
+$\rho$ & encryption-completion rate / encrypting & 2.00 & d$^{-1}$\\
+$\delta_0$ & baseline detection hazard & 0.20 & d$^{-1}$\\
+$\kappa_x$ & detection gain / exfiltrating server & 0.50 & d$^{-1}$\\
+$\kappa_b$ & detection gain / encrypting server & 1.50 & d$^{-1}$\\
+$\kappa_c$ & detection gain / locked server & 0.80 & d$^{-1}$\\
+$\mathrm{RTO}_0$ & base restore time & 0.25 & d\\
+$\mathrm{RTO}_1$ & restore-time growth / locked server & 0.15 & d\\
+$w_L$ & data loss / locked server (RPO) & 1.00 & unit\\
+$\mathrm{cov}_r$ & restore coverage & 1.00 & --\\
+\bottomrule
+\end{tabular}

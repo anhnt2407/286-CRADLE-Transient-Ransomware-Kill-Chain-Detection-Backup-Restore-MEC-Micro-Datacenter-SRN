@@ -1,0 +1,11 @@
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+design & $\sigma_D$ & $\tau_b$(h) & E[exfil] & E[denial] & E[loss] & $S$ & $O$ & $J$\\
+\midrule
+baseline & 1.0 & 24 & 0.566 & 0.389 & 0.382 & 1.491 & 0.700 & 2.191\\
+detection-blind & 1.0 & 25 & 0.566 & 0.389 & 0.382 & 1.491 & 0.691 & 2.191\\
+\midrule
+\textbf{co-design}~$\star$ & 2.17 & 32 & 0.385 & 0.149 & 0.296 & 0.971 & 0.947 & 1.918\\
+\bottomrule
+\end{tabular}
