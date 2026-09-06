@@ -13,6 +13,12 @@
   "m": 4,
   "nt": 139,
   "n": 140,
+  "service": {
+    "peak_p_denied": 0.0746018567007795,
+    "peak_p_denied_t": 3.25,
+    "min_avail": 0.9797709906894326,
+    "min_avail_t": 3.35
+  },
   "resolution_dev_from_exp": 0.21246770481714242,
   "codesign": {
     "sigma_D": 2.170365373109446,

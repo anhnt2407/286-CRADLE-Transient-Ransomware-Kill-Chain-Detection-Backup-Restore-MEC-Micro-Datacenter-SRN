@@ -42,6 +42,7 @@ def tab_params():
         (r"$\phi$", "exfiltration-completion rate / exfiltrating", f"{p.phi:.2f}", "d$^{-1}$"),
         (r"$\rho$", "encryption-completion rate / encrypting", f"{p.rho:.2f}", "d$^{-1}$"),
         (r"$\delta_0$", "baseline detection hazard", f"{p.delta0:.2f}", "d$^{-1}$"),
+        (r"$\kappa_a$", "detection gain / compromised server", f"{p.ka:.2f}", "d$^{-1}$"),
         (r"$\kappa_x$", "detection gain / exfiltrating server", f"{p.kx:.2f}", "d$^{-1}$"),
         (r"$\kappa_b$", "detection gain / encrypting server", f"{p.kb:.2f}", "d$^{-1}$"),
         (r"$\kappa_c$", "detection gain / locked server", f"{p.kc:.2f}", "d$^{-1}$"),
@@ -59,16 +60,17 @@ def tab_params():
 
 
 def tab_transitions():
-    out = [r"\begin{tabular}{@{}lllc@{}}", r"\toprule",
-           r"activity & effect on $(a,x,b,c,d)$ & rate & guard\\", r"\midrule",
-           r"initial access & $(0,0,0,0,0)\!\to\!(1,0,0,0,0)$ & $\beta$ & $p{=}0,V{\ge}1$\\",
-           r"lateral move & $a\!\to\!a{+}1$ & $h\,\beta_L$ & $V{\ge}1,h{\ge}1$\\",
+    out = [r"\setlength{\tabcolsep}{2pt}\scriptsize",
+           r"\begin{tabular}{@{}lllc@{}}", r"\toprule",
+           r"activity & effect & rate & guard\\", r"\midrule",
+           r"initial access & $(0,0,0,0,0)\!\to\!(1,0,0,0,0)$ & $\beta$ & $p{=}0,d{=}0$\\",
+           r"lateral move & $a\!\to\!a{+}1$ & $h\,\beta_L$ & $V{\ge}1,h{\ge}1,d{=}0$\\",
            r"exfil.\ onset & $a\!\to\!a{-}1,\,x\!\to\!x{+}1$ & $a\,\epsilon$ & $a{\ge}1,d{=}0$\\",
            r"exfil.\ done & $x\!\to\!x{-}1,\,b\!\to\!b{+}1$ & $x\,\phi$ & $x{\ge}1,d{=}0$\\",
            r"encrypt done & $b\!\to\!b{-}1,\,c\!\to\!c{+}1$ & $b\,\rho$ & $b{\ge}1$\\",
            r"detection & $d\!:\!0\!\to\!1$ & $\delta(s)$ & $p{\ge}1,d{=}0$\\",
            r"restore & $\to\textsc{Good}$ & $\eta(c)\,\mathrm{cov}_r$ & $d{=}1$\\",
-           r"restore (residual) & $\to(1,0,0,0,0)$ & $\eta(c)(1{-}\mathrm{cov}_r)$ & $d{=}1$\\",
+           r"partial restore & $\to(1,0,0,0,0)$ & $\eta(c)(1{-}\mathrm{cov}_r)$ & $d{=}1$\\",
            r"\bottomrule", r"\end{tabular}"]
     write("tab_transitions.tex", out)
 
@@ -94,33 +96,39 @@ def tab_validation():
 
 
 def tab_codesign():
+    """
+    Every row is evaluated at its OWN lever pair, so each row satisfies J = S+O.
+    (A previous version printed the baseline harms on the detection-blind row.)
+    """
     h = head()
-    b = h["base_totals"]
-    c = h["codesign"]
     bl = h["blind"]
-    def row(lbl, sig, tau, S, O, J, br, dn, dl):
-        return (f"{lbl} & {sig} & {tau} & {br:.3f} & {dn:.3f} & {dl:.3f} "
-                f"& {S:.3f} & {O:.3f} & {J:.3f}\\\\")
-    # baseline: sigma_D=1, tau_b=24 (S/O from cost at baseline) -- recompute
     import optimize as opt
     cfg = opt.CostConfig()
-    base_eval = opt.evaluate(1.0, cfg.tau_b0, Params(), cfg)
-    out = [r"\setlength{\tabcolsep}{4pt}",
-           r"\begin{tabular}{@{}lrrrrrrrr@{}}", r"\toprule",
-           r"design & $\sigma_D$ & $\tau_b$(h) & E[exfil] & E[denial] & E[loss] "
-           r"& $S$ & $O$ & $J$\\", r"\midrule",
-           row("baseline", "1.0", "24", base_eval["S"], base_eval["O"],
-               base_eval["J"], base_eval["E_breach"], base_eval["E_denial_daysrv"],
-               base_eval["E_dataloss"]),
-           row("detection-blind", "1.0", f"{bl['tau_blind']:.0f}",
-               base_eval["S"], cfg.C_mon(1.0)+cfg.C_bkp(bl['tau_blind']),
-               bl["J_blind"], base_eval["E_breach"], base_eval["E_denial_daysrv"],
-               base_eval["E_dataloss"]),
-           r"\midrule",
-           row(r"\textbf{co-design}~$\star$", f"{c['sigma_D']:.2f}",
-               f"{c['tau_b']:.0f}", c["S"], c["O"], c["J"], c["E_breach"],
-               c["E_denial_daysrv"], c["E_dataloss"]),
-           r"\bottomrule", r"\end{tabular}"]
+    base = Params()
+    rows_cfg = [("baseline", 1.0, cfg.tau_b0),
+                ("detection-blind", 1.0, bl["tau_blind"]),
+                (r"co-design~$\star$", h["codesign"]["sigma_D"],
+                 h["codesign"]["tau_b"])]
+    ev = [opt.evaluate(sg, tb, base, cfg) for _l, sg, tb in rows_cfg]
+    lines = [
+        (r"detection sensitivity $\sigma_D$", [f"{e['sigma_D']:.2f}" for e in ev]),
+        (r"backup interval $\tau_b$ (h)", [f"{e['tau_b']:.0f}" for e in ev]),
+        (r"datasets exfiltrated", [f"{e['E_breach']:.3f}" for e in ev]),
+        (r"denial (server-days)", [f"{e['E_denial_daysrv']:.3f}" for e in ev]),
+        (r"data loss (RPO units)", [f"{e['E_dataloss']:.3f}" for e in ev]),
+        (None, None),
+        (r"security loss $S$", [f"{e['S']:.3f}" for e in ev]),
+        (r"operational spend $O$", [f"{e['O']:.3f}" for e in ev]),
+        (r"total cost $J$", [f"{e['J']:.3f}" for e in ev]),
+    ]
+    out = [r"\begin{tabular}{@{}lrrr@{}}", r"\toprule",
+           r"quantity & baseline & detection-blind & co-design\\", r"\midrule"]
+    for lbl, vals in lines:
+        if lbl is None:
+            out.append(r"\midrule")
+        else:
+            out.append(f"{lbl} & " + " & ".join(vals) + r"\\")
+    out += [r"\bottomrule", r"\end{tabular}"]
     write("tab_codesign.tex", out)
 
 

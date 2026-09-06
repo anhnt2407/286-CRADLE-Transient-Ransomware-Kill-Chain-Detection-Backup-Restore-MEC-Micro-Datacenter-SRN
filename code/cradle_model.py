@@ -372,10 +372,19 @@ class CradleModel:
     # ---- aggregate marginals ------------------------------------------- #
     def aggregate(self, pis: np.ndarray, field: str, thresh: int, mode="ge"
                   ) -> np.ndarray:
-        """P(#servers-in-`field` `mode` `thresh`) over time, from pis."""
+        """
+        P(#servers-in-`field` `mode` `thresh`) over time, from pis.
+
+        The absorbing GOOD state is a fully restored MEDC and therefore carries
+        a count of zero in every kill-chain stage; it is included in the ``eq``
+        branch so that the returned probabilities always sum to one over a
+        partition of the state space.
+        """
         j = {"a": 0, "x": 1, "b": 2, "c": 3}[field]
         idx = [self.index[s] for s in self.tstates
                if (s[j] >= thresh if mode == "ge" else s[j] == thresh)]
+        if mode == "eq" and thresh == 0:
+            idx.append(self.index[GOOD])
         return pis[:, idx].sum(axis=1)
 
     def expected_count(self, pis: np.ndarray, field: str) -> np.ndarray:

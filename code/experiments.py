@@ -73,12 +73,18 @@ def main():
     # ---------- Fig B: service availability / denial ------------------------ #
     print("[2/9] availability ...")
     avail = 1.0 - Ec["c"] / base.m                    # expected available fraction
-    p_deg = 1.0 - model.aggregate(pis, "c", 0, "eq")  # P(>=1 locked)
-    p_deg_sim = 1.0 - (S["prob"][:, [idx[s] for s in model.tstates if s[3] == 0]].sum(1))
+    # P(service denied) = P(at least one Locked server); the absorbing GOOD
+    # state is a restored MEDC and must NOT be counted as denied.
+    p_deg = model.aggregate(pis, "c", 1, "ge")
+    p_deg_sim = S["prob"][:, [idx[s] for s in model.tstates if s[3] >= 1]].sum(1)
     save_csv("fig_availability.csv", ["t", "avail_frac", "p_service_denied"],
              [tf, avail, p_deg])
     save_csv("fig_availability_sim.csv", ["t", "p_service_denied"],
              [MARKERS, p_deg_sim])
+    head["service"] = {"peak_p_denied": float(p_deg.max()),
+                       "peak_p_denied_t": float(tf[int(np.argmax(p_deg))]),
+                       "min_avail": float(avail.min()),
+                       "min_avail_t": float(tf[int(np.argmin(avail))])}
 
     # ---------- Fig C: accumulated security-loss decomposition -------------- #
     print("[3/9] accumulated loss decomposition ...")

@@ -25,7 +25,7 @@ defender's **detect-and-restore** response. Two novelties break prior models:
 
 1. **Encryption is a recoverable service-denial state**, not an absorbing breach.
 2. **Detection is footprint-aware** — the EDR hazard grows with the *encryption /
-   exfiltration I/O footprint* (`δ(s)=δ₀+κ_x x+κ_b b+κ_c c`), which we **prove** makes
+   exfiltration I/O footprint* (`δ(s)=δ₀+κ_a a+κ_x x+κ_b b+κ_c c`), which we **prove** makes
    the resolution law non-memoryless (a departure from uniform-recovery models).
 3. **Restore has RPO/RTO economics** — data loss per locked server scales with the
    backup interval; restore time grows with the number of locked servers; restore
@@ -43,7 +43,10 @@ defender's **detect-and-restore** response. Two novelties break prior models:
 2. **Detection and backups are economic substitutes.** The co-designed optimum
    (`σ_D*≈2.2`, `τ_b*≈32 h`) *relaxes* the backup interval relative to a detection-blind
    operator (25 h): **sharper detection lets you back up less often**, cutting expected
-   service denial by **62 %**. Ignoring the coupling costs **14 %**.
+   service denial by **62 %** and expected data loss by **23 %**. Ignoring the coupling
+   costs **14 %**.
+   Transient service view: availability dips to **98.0 %** at day 3.4 and the probability
+   of service denial peaks at **7.5 %** near day 3.2 before restore returns full service.
 3. **Per-incident harm saturates with MEDC size** (`m=2…6`): detection resolves the
    incident before the campaign traverses the fleet, so detection latency and backup
    recency — not fleet size — govern ransomware risk.
@@ -56,7 +59,7 @@ defender's **detect-and-restore** response. Two novelties break prior models:
 ## Layout
 
 ```
-504-CRADLE-.../
+273-CRADLE-.../
   README.md                requirements.txt
   code/
     cradle_model.py        # SRN/CTMC: states, generator, transient (expm),
@@ -70,7 +73,7 @@ defender's **detect-and-restore** response. Two novelties break prior models:
     make_figures.py        # 12 figures (PNG+PDF) from the CSVs
     gen_tables.py          # LaTeX booktabs fragments -> paper/tables/*.tex
     emit_macros.py         # in-text result numbers -> paper/macros.tex
-    plotstyle.py           # shared Okabe-Ito matplotlib style
+    plotstyle.py           # shared monochrome Times New Roman style
     run_all.py             # verify + experiments + figures + tables + macros + pytest
     tests/test_model.py    # pytest sanity + reproduction suite
   results/
@@ -78,7 +81,7 @@ defender's **detect-and-restore** response. Two novelties break prior models:
     csv/*.csv              # every plotted curve + headline.json + validation_table.csv
     validation_report.md   # generated PASS/FAIL report
   paper/
-    main.tex               # IEEEtran journal manuscript (~9 pp, 12 figs, 6 tables)
+    main.tex               # IEEEtran journal manuscript (10 pp, 14 figs, 5 tables)
     macros.tex             # auto-generated in-text numbers (do not edit)
     tables/*.tex           # auto-generated booktabs table bodies
 ```

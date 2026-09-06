@@ -1,11 +1,15 @@
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrrrrrr@{}}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-design & $\sigma_D$ & $\tau_b$(h) & E[exfil] & E[denial] & E[loss] & $S$ & $O$ & $J$\\
+quantity & baseline & detection-blind & co-design\\
 \midrule
-baseline & 1.0 & 24 & 0.566 & 0.389 & 0.382 & 1.491 & 0.700 & 2.191\\
-detection-blind & 1.0 & 25 & 0.566 & 0.389 & 0.382 & 1.491 & 0.691 & 2.191\\
+detection sensitivity $\sigma_D$ & 1.00 & 1.00 & 2.17\\
+backup interval $\tau_b$ (h) & 24 & 25 & 32\\
+datasets exfiltrated & 0.566 & 0.566 & 0.385\\
+denial (server-days) & 0.389 & 0.389 & 0.149\\
+data loss (RPO units) & 0.382 & 0.391 & 0.296\\
 \midrule
-\textbf{co-design}~$\star$ & 2.17 & 32 & 0.385 & 0.149 & 0.296 & 0.971 & 0.947 & 1.918\\
+security loss $S$ & 1.491 & 1.500 & 0.971\\
+operational spend $O$ & 0.700 & 0.691 & 0.947\\
+total cost $J$ & 2.191 & 2.191 & 1.918\\
 \bottomrule
 \end{tabular}
